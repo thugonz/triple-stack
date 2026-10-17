@@ -156,7 +156,21 @@ CHAPTERS = [
     ("The Citadel", [m_full, m_diamond, m_ring]),
 ]
 
-BASE_SYMBOLS = 6
+BASE_SYMBOLS = 10
+
+# How many designs appear on ONE board, per level. Calibrated by simulation
+# against a target difficulty curve (see tools/calibrate.js); empty = use the
+# smooth fallback formula in curve().
+BOARD_SYMBOLS = [
+    9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 11, 10, 11, 12, 10,
+    12, 12, 11, 12, 12, 12, 12, 12, 12, 12, 12, 10, 11, 12, 12, 11, 12, 12, 11, 12,
+    12, 13, 12, 13, 11, 13, 11, 11, 13, 12, 12, 13, 12, 13, 13, 13, 12, 13, 13, 12,
+    11, 13, 13, 14, 12, 14, 12, 13, 13, 14, 12, 14, 14, 13, 13, 13, 14, 14, 12, 13,
+    12, 13, 14, 12, 12, 12, 14, 13, 13, 14, 15, 15, 13, 13, 15, 13, 13, 13, 14, 13,
+]
+# All Unicode 6.0 / Emoji 1.0, single codepoint, no variation selectors.
+# 30 designs: enough for a catalogue that starts at 10 and adds one every
+# 5 levels. Placeholder art until the real sprites land.
 
 SYMBOLS = ["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈",
            "🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦","🍰","🍕"]
@@ -169,20 +183,50 @@ SYMBOLS = ["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄"
 def curve(n):
     """Difficulty parameters for level n (1..100).
 
-    Footprint stops growing around level 55. After that every extra tile
-    arrives as DEPTH, and depth is what creates hidden tiles.
+    Two separate symbol counts:
+      catalogue — how many designs have been INTRODUCED by now (6 -> 25, one
+                  every 5 levels). This is the variety/reward curve.
+      board     — how many designs appear on THIS board (5 -> 14). This is the
+                  difficulty curve, and it is the dominant one.
+
+    They are separate because the forward peel stamps a symbol onto three tiles
+    that are free at the same moment. Many symbols => each gets ~1 triple and
+    its tiles sit together, which is EASY. Few symbols => each gets many triples
+    assigned at widely separated moments, scattered through the stack, which is
+    hard. So more designs on one board makes the game easier, not harder.
     """
     t = (n - 1) / 99.0                                  # 0..1
-    target = int(round(18 + (126 - 18) * (t ** 1.18)))  # 18 -> 126 tiles
+    target = int(round(30 + (126 - 30) * (t ** 1.05)))  # 30 -> 126 tiles
     target -= target % 3
     layers = 2 + int(round((t ** 0.85) * 7))            # 2 -> 9 layers
     f = min(1.0, t / 0.55)                              # footprint maxes at ~L55
-    cols = 4 + int(round(f * 2))                        # 4 -> 6 tiles wide
-    rows = 3 + int(round(f * 3))                        # 3 -> 6 tiles tall
+    cols = 5 + int(round(f * 1))                        # 5 -> 6 tiles wide
+    rows = 4 + int(round(f * 2))                        # 4 -> 6 tiles tall
     hide_share = 0.0 if n < 8 else min(0.68, (((n - 8) / 92.0) ** 0.95) * 0.76)
-    # ONE new tile design every 5 levels: 6 symbols at level 1, 25 at level 100.
-    symbols = BASE_SYMBOLS + (n - 1) // 5
-    return cols, rows, target, layers, hide_share, symbols
+    catalogue = min(len(SYMBOLS), BASE_SYMBOLS + (n - 1) // 5)   # 6 -> 25
+    board = (BOARD_SYMBOLS[n - 1] if BOARD_SYMBOLS
+             else 5 + int(round(t * 9)))
+    return cols, rows, target, layers, hide_share, catalogue, board
+
+
+def board_pool(n, catalogue, board, _unused=None):
+    """Pick this board's designs out of the unlocked catalogue.
+
+    The design introduced on this level is always included, so the "new tile"
+    moment still lands. The rest rotate per level so neighbouring levels do not
+    look like the same board twice.
+    """
+    rng = random.Random(n * 7777)          # own stream: geometry stays fixed
+    k = min(board, catalogue)
+    idx = list(range(catalogue))
+    rng.shuffle(idx)
+    chosen = []
+    if n % 5 == 1 and n > 1:
+        newest = catalogue - 1
+        chosen.append(newest)
+        idx.remove(newest)
+    chosen += idx[:max(0, k - len(chosen))]
+    return [SYMBOLS[i] for i in sorted(chosen)]
 
 
 def layer_sizes(base, L, target):
@@ -213,7 +257,8 @@ def layer_sizes(base, L, target):
 
 
 def build(n, rng):
-    cols, rows, target, L, hide_share, nsym = curve(n)
+    cols, rows, target, L, hide_share, catalogue, board = curve(n)
+    pool = board_pool(n, catalogue, board)
     chap = CHAPTERS[(n - 1) // 10]
 
     base_mask = rng.choice(chap[1])(cols, rows)
@@ -236,16 +281,16 @@ def build(n, rng):
     if n_hide:
         weights = [(upper - i) ** 1.6 for i in range(upper)]
         picks = set()
-        pool = list(range(upper))
+        slots = list(range(upper))
         for _ in range(n_hide):
-            tot = sum(weights[i] for i in pool)
+            tot = sum(weights[i] for i in slots)
             r = rng.random() * tot
             acc = 0.0
-            for i in pool:
+            for i in slots:
                 acc += weights[i]
                 if r <= acc:
                     picks.add(i)
-                    pool.remove(i)
+                    slots.remove(i)
                     break
     else:
         picks = set()
@@ -342,7 +387,7 @@ def build(n, rng):
     while len(tiles) % 3:
         strip(tiles, 1)
 
-    return tiles, chap[0], nsym
+    return tiles, chap[0], pool, catalogue
 
 
 def to_layers(tiles):
@@ -371,7 +416,7 @@ def main():
     for n in range(1, 101):
         for attempt in range(60):
             rng = random.Random(n * 1000 + attempt)
-            tiles, chname, nsym = build(n, rng)
+            tiles, chname, pool, catalogue = build(n, rng)
             if len(tiles) < 18 or len(tiles) % 3:
                 continue
             # same-layer overlap must be impossible
@@ -391,14 +436,14 @@ def main():
         entry = {
             "n": n,
             "chapter": chname,
-            "pool": SYMBOLS[:nsym],
+            "pool": pool,
             "layers": to_layers(tiles),
         }
         if n % 5 == 1 and n > 1:
-            entry["introduces"] = SYMBOLS[nsym - 1]
+            entry["introduces"] = SYMBOLS[catalogue - 1]
         levels.append(entry)
         report.append((n, chname, len(tiles), max(t[2] for t in tiles) + 1,
-                       hid, round(100 * hid / len(tiles)), nsym))
+                       hid, round(100 * hid / len(tiles)), len(pool)))
 
     with open("levels.json", "w", encoding="utf-8") as f:
         json.dump(levels, f, ensure_ascii=False, separators=(",", ":"))
