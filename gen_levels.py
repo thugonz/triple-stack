@@ -162,11 +162,11 @@ BASE_SYMBOLS = 10
 # against a target difficulty curve (see tools/calibrate.js); empty = use the
 # smooth fallback formula in curve().
 BOARD_SYMBOLS = [
-    9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 11, 10, 11, 12, 10,
-    12, 12, 11, 12, 12, 12, 12, 12, 12, 12, 12, 10, 11, 12, 12, 11, 12, 12, 11, 12,
-    12, 13, 12, 13, 11, 13, 11, 11, 13, 12, 12, 13, 12, 13, 13, 13, 12, 13, 13, 12,
-    11, 13, 13, 14, 12, 14, 12, 13, 13, 14, 12, 14, 14, 13, 13, 13, 14, 14, 12, 13,
-    12, 13, 14, 12, 12, 12, 14, 13, 13, 14, 15, 15, 13, 13, 15, 13, 13, 13, 14, 13,
+    8, 6, 5, 7, 5, 7, 5, 7, 8, 8, 6, 8, 6, 8, 7, 5, 7, 5, 7, 7,
+    5, 4, 6, 5, 7, 9, 11, 11, 11, 11, 11, 11, 10, 11, 11, 9, 9, 11, 12, 10,
+    12, 13, 11, 12, 13, 11, 12, 11, 12, 14, 12, 10, 10, 12, 12, 12, 10, 9, 8, 10,
+    12, 10, 11, 13, 11, 13, 11, 11, 13, 15, 15, 15, 13, 14, 12, 14, 13, 13, 13, 12,
+    13, 11, 11, 12, 12, 10, 12, 11, 12, 14, 14, 14, 12, 10, 12, 14, 14, 12, 14, 12,
 ]
 # All Unicode 6.0 / Emoji 1.0, single codepoint, no variation selectors.
 # 30 designs: enough for a catalogue that starts at 10 and adds one every
@@ -202,7 +202,10 @@ def curve(n):
     f = min(1.0, t / 0.55)                              # footprint maxes at ~L55
     cols = 5 + int(round(f * 1))                        # 5 -> 6 tiles wide
     rows = 4 + int(round(f * 2))                        # 4 -> 6 tiles tall
-    hide_share = 0.0 if n < 8 else min(0.68, (((n - 8) / 92.0) ** 0.95) * 0.76)
+    # Dead-centre stacking is the core challenge, so it starts at level 3 and
+    # climbs hard. 0.85 is the ceiling — past that the peel runs out of free
+    # tiles and levels become ungeneratable.
+    hide_share = 0.0 if n < 3 else min(0.85, 0.15 + 0.70 * (t ** 0.8))
     catalogue = min(len(SYMBOLS), BASE_SYMBOLS + (n - 1) // 5)   # 6 -> 25
     board = (BOARD_SYMBOLS[n - 1] if BOARD_SYMBOLS
              else 5 + int(round(t * 9)))
@@ -271,8 +274,8 @@ def build(n, rng):
     # Which upper layers stack DEAD-CENTRE (hiding the tile beneath completely).
     upper = L - 1
     n_hide = int(round(upper * hide_share))
-    if n >= 10 and upper >= 2:
-        n_hide = max(1, n_hide)             # the mechanic shows up from level 10
+    if n >= 3 and upper >= 1:
+        n_hide = max(1, n_hide)             # the mechanic shows up from level 3
     n_hide = min(n_hide, upper)
     # spread them evenly rather than clumping, with a little per-level jitter
     # Bias dead-centre layers toward the BOTTOM of the stack: lower layers are
@@ -343,8 +346,10 @@ def build(n, rng):
     tiles = [(gx, gy, l) for l, cells in enumerate(layer_tiles) for (gx, gy) in sorted(cells)]
 
     # Short of target? Add dead-centre caps on top until we reach it.
+    # Levels 1-2 are the clean on-ramp, so they never get these: they would
+    # bury tiles before the player has met the idea.
     guard = 0
-    while len(tiles) < target and guard < 14:
+    while n >= 3 and len(tiles) < target and guard < 14:
         guard += 1
         top = max(t[2] for t in tiles)
         band = [t for t in tiles if t[2] == top]
