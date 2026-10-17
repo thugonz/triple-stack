@@ -1,0 +1,773 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="description" content="A top-down tile-matching puzzle. Clear stacked boards three tiles at a time across 100 levels.">
+<meta name="theme-color" content="#131e1d">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Triple Stack">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+<title>Triple Stack</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Archivo:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --ground:#131e1d;
+    --felt:#1c2e2b;
+    --felt-hi:#26403c;
+    --rail:#0d1615;
+    --bone:#f7efdd;
+    --bone-lo:#e4d7ba;
+    --bone-edge:#8a7959;
+    --bone-deep:#7d6e51;
+    --brass:#d8a340;
+    --brass-lo:#a87c2a;
+    --ink:#ece6d7;
+    --ink-mute:#8b9f9a;
+    --danger:#cf5f4b;
+    --good:#6fb68a;
+    --tw:48px; --th:58px; --hu:24px; --hv:29px;
+    --emoji:"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol",
+            "Noto Color Emoji","Android Emoji",sans-serif;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:
+      radial-gradient(120% 80% at 50% 0%, #1b2b29 0%, var(--ground) 62%, #0c1413 100%);
+    color:var(--ink);
+    font-family:'Archivo',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+  body{display:flex;align-items:center;justify-content:center}
+  #app{
+    height:100%;width:100%;display:flex;flex-direction:column;padding:0 16px;
+    /* Caps keep the tray near the board on a tablet instead of stranding it
+       at the bottom of a very tall screen. */
+    max-width:620px;max-height:900px;margin:0 auto;
+  }
+
+  /* ---- top bar ---- */
+  header{
+    display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding-block:14px 10px;
+  }
+  .brand{font-family:'Fraunces',Georgia,serif;font-weight:700;font-size:19px;letter-spacing:-.01em;margin:0;line-height:1}
+  .brand span{color:var(--brass)}
+  .stagechip{
+    font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-mute);
+    border:1px solid #2f4541;border-radius:999px;padding:4px 9px;white-space:nowrap;
+  }
+  .spacer{flex:1}
+  .readout{display:flex;gap:16px;align-items:baseline}
+  .stat{display:flex;flex-direction:column;align-items:flex-end;line-height:1.05}
+  .stat b{font-family:'Fraunces',Georgia,serif;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+  .stat i{font-style:normal;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-mute)}
+  .stat.tainted b, .stat.tainted i{color:var(--danger)}
+
+  /* ---- board ---- */
+  #boardArea{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
+  #stage{position:relative;transform-origin:center center}
+
+  .tile{
+    position:absolute;width:var(--tw);height:var(--th);
+    padding:0;margin:0;border-radius:8px;
+    border:1px solid var(--bone-edge);
+    background:linear-gradient(180deg,#f9f2e2 0%,var(--bone-lo) 100%);
+    /* Straight top-down and flat: no offset, no bevel, no drop shadow.
+       The 1px border is the only thing separating neighbouring tiles. */
+    display:grid;place-items:center;
+    font-family:var(--emoji);font-size:26px;line-height:1;
+    cursor:pointer;-webkit-tap-highlight-color:transparent;
+    transition:transform .11s ease, filter .18s ease, outline-color .15s ease;
+    outline:1.5px solid transparent;outline-offset:-1.5px;
+    user-select:none;
+  }
+  /* Covered tiles are NOT shaded. Whether a tile is takeable is read off the
+     geometry alone: an unbroken rectangle is free, a clipped one is covered. */
+  .tile.blocked{cursor:default}
+  .tile.free:hover{outline-color:var(--brass)}
+  .tile.free:active{transform:scale(.96)}
+  .tile:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  .tile.blocker{
+    outline-color:var(--danger);outline-width:2.5px;
+    animation:pulse .7s ease;
+  }
+  @keyframes pulse{0%,100%{transform:none}35%{transform:scale(1.06)}70%{transform:scale(1.02)}}
+  .tile.nudge{animation:nudge .26s ease}
+  @keyframes nudge{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+
+  /* ---- tray ---- */
+  #trayWrap{padding-block:10px 0;display:flex;justify-content:center}
+  #tray{
+    width:100%;max-width:400px;
+    display:grid;grid-template-columns:repeat(5,1fr);gap:7px;
+    background:linear-gradient(180deg,var(--rail),#182726);
+    border:1px solid #2c4340;border-top-color:#3a5651;
+    border-radius:14px;padding:8px;
+    box-shadow:0 -1px 0 rgba(255,255,255,.05) inset, 0 10px 26px rgba(0,0,0,.4);
+    transition:border-color .25s ease, box-shadow .25s ease;
+  }
+  #tray.hot{border-color:var(--danger);box-shadow:0 0 0 1px rgba(207,95,75,.35), 0 10px 26px rgba(0,0,0,.4)}
+  .slot{
+    aspect-ratio:48/58;border-radius:7px;
+    background:rgba(0,0,0,.28);
+    border:1px dashed #2f4a46;
+    display:grid;place-items:center;font-family:var(--emoji);font-size:clamp(18px,5.8vw,28px);
+  }
+  .slot.filled{
+    border:1px solid var(--bone-edge);border-style:solid;
+    background:linear-gradient(180deg,#f9f2e2,var(--bone-lo));
+    box-shadow:0 2px 6px rgba(0,0,0,.38);
+    animation:drop .18s ease;
+  }
+  @keyframes drop{from{transform:translateY(-8px) scale(.9);opacity:0}to{transform:none;opacity:1}}
+  .slot.clearing{animation:pop .24s ease forwards}
+  @keyframes pop{to{transform:scale(1.28);opacity:0}}
+
+  /* ---- controls ---- */
+  .controls{display:flex;flex-wrap:wrap;gap:8px;padding-block:10px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
+  button.ctl{
+    flex:1 1 68px;font-family:'Archivo',sans-serif;font-size:12.5px;font-weight:600;
+    letter-spacing:.04em;text-transform:uppercase;
+    color:var(--ink);background:#1f312e;border:1px solid #33504b;border-radius:10px;
+    padding:11px 8px;cursor:pointer;transition:background .15s,border-color .15s,color .15s;
+  }
+  button.ctl:hover:not(:disabled){background:#27403b;border-color:var(--brass-lo)}
+  button.ctl:disabled{opacity:.35;cursor:not-allowed}
+  button.ctl:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  button.ctl.key{background:linear-gradient(180deg,var(--brass),var(--brass-lo));color:#20180a;border-color:#7d5c1c}
+
+  /* ---- new-tile toast ---- */
+  #toast{
+    position:absolute;left:50%;top:6px;transform:translateX(-50%);
+    display:flex;align-items:center;gap:9px;white-space:nowrap;
+    background:linear-gradient(180deg,var(--brass),var(--brass-lo));color:#20180a;
+    border:1px solid #7d5c1c;border-radius:999px;padding:7px 15px;
+    font-size:11.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+    box-shadow:0 10px 24px rgba(0,0,0,.5);z-index:60;
+    animation:toastIn .32s ease;transition:opacity .4s ease;
+  }
+  #toast .sym{font-family:var(--emoji);font-size:20px;letter-spacing:0}
+  @keyframes toastIn{from{opacity:0;transform:translate(-50%,-10px)}to{opacity:1;transform:translateX(-50%)}}
+  .newsym{color:var(--brass);font-family:var(--emoji);letter-spacing:0;font-size:13px}
+
+  /* ---- fly layer + overlay ---- */
+  #fly{position:fixed;inset:0;pointer-events:none;z-index:9000}
+  .flyer{
+    position:fixed;border-radius:8px;border:1px solid var(--bone-edge);
+    background:linear-gradient(180deg,#f9f2e2,var(--bone-lo));
+    display:grid;place-items:center;font-family:var(--emoji);
+    box-shadow:0 10px 22px rgba(0,0,0,.45);
+    transition:transform .26s cubic-bezier(.34,.9,.4,1), width .26s, height .26s, font-size .26s;
+  }
+  #overlay{
+    position:fixed;inset:0;z-index:9500;display:grid;place-items:center;
+    background:rgba(8,14,13,.82);backdrop-filter:blur(3px);padding:24px;
+  }
+  .panel{
+    background:linear-gradient(180deg,#1e302d,#162422);
+    border:1px solid #35524d;border-radius:18px;padding:26px 24px;
+    max-width:360px;width:100%;text-align:center;
+    box-shadow:0 24px 60px rgba(0,0,0,.6);
+  }
+  .panel h2{font-family:'Fraunces',Georgia,serif;font-size:27px;margin:0 0 6px;text-wrap:balance}
+  .panel h2.win{color:var(--good)}
+  .panel h2.lose{color:var(--danger)}
+  .panel p{color:var(--ink-mute);font-size:13.5px;line-height:1.55;margin:0 0 18px}
+  .panel.wide{max-width:420px}
+  .chapters{max-height:min(54vh,400px);overflow-y:auto;text-align:left;margin-bottom:14px;padding-right:4px}
+  .chap + .chap{margin-top:13px}
+  .chap h3{font-family:'Fraunces',Georgia,serif;font-size:11.5px;font-weight:700;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--ink-mute);margin:0 0 7px}
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+  .cell{
+    aspect-ratio:1;border-radius:8px;border:1px solid #314c47;background:#1b2b29;
+    color:var(--ink);font-family:'Archivo',sans-serif;font-size:12.5px;font-weight:600;
+    font-variant-numeric:tabular-nums;cursor:pointer;display:grid;place-items:center;padding:0;
+    transition:border-color .15s,background .15s;
+  }
+  .cell.done{background:linear-gradient(180deg,var(--brass),var(--brass-lo));color:#20180a;border-color:#7d5c1c}
+  .cell.next{border-color:var(--brass);color:var(--brass);box-shadow:0 0 0 1px var(--brass) inset}
+  .cell:hover:not(:disabled){border-color:var(--brass-lo)}
+  .cell:disabled{opacity:.28;cursor:not-allowed}
+  .cell:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  .levels{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+  .lvl{
+    display:flex;align-items:center;gap:10px;text-align:left;
+    background:#1b2b29;border:1px solid #314c47;border-radius:11px;padding:11px 13px;
+    color:var(--ink);font-family:inherit;font-size:14px;cursor:pointer;width:100%;
+    transition:border-color .15s,background .15s;
+  }
+  .lvl:hover{background:#22352f;border-color:var(--brass-lo)}
+  .lvl:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  .lvl .n{font-family:'Fraunces',Georgia,serif;font-weight:700;color:var(--brass);width:18px;font-variant-numeric:tabular-nums}
+  .lvl .meta{margin-left:auto;font-size:11px;color:var(--ink-mute);letter-spacing:.04em}
+  @media (prefers-reduced-motion:reduce){
+    *{animation-duration:.01ms!important;transition-duration:.01ms!important}
+  }
+
+  /* ---- standalone PWA shell (the Artifact host used to supply this) ---- */
+  html{
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+    background:var(--ground);
+    overscroll-behavior:none;
+    -webkit-text-size-adjust:100%;
+  }
+  body{
+    overscroll-behavior:none;
+    touch-action:manipulation;
+    -webkit-user-select:none;user-select:none;
+    -webkit-touch-callout:none;
+  }
+  img{max-width:100%}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+
+
+<div id="app">
+  <header>
+    <h1 class="brand">Triple<span>Stack</span></h1>
+    <span class="stagechip" id="stageName">Level 1</span>
+    <span class="spacer"></span>
+    <div class="readout">
+      <div class="stat"><b id="statLeft">0</b><i>Tiles left</i></div>
+      <div class="stat" id="undoStat"><b id="statUndo">3</b><i id="undoLabel">Undos</i></div>
+    </div>
+  </header>
+
+  <div id="boardArea"><div id="stage"></div></div>
+
+  <div id="trayWrap"><div id="tray"></div></div>
+
+  <div class="controls">
+    <button class="ctl" id="btnUndo">Undo</button>
+    <button class="ctl" id="btnShuffle">Shuffle</button>
+    <button class="ctl" id="btnLevels">Levels</button>
+    <button class="ctl" id="btnSound" aria-pressed="true">Sound</button>
+  </div>
+</div>
+<div id="fly"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ============================================================
+   LEVEL FORMAT
+   Grid is in HALF-TILE units. A tile at (gx,gy) occupies
+   gx..gx+1 and gy..gy+1, so two tiles overlap when
+   |dgx| < 2 and |dgy| < 2. Each layer block places a tile for
+   every 'X' at (ox + 2*col, oy + 2*row).
+   Tile count per level MUST be a multiple of 3.
+
+   A layer whose lattice sits exactly on the layer below (same ox,oy parity
+   and same cells) buries those tiles completely — only the edge sliver shows.
+   The generator ramps how often that happens: none before level 10, roughly
+   half the tiles by level 100.
+   ============================================================ */
+const PACK = [{"n":1,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓"],"layers":[{"ox":0,"oy":0,"rows":["..XX",".XXX","XXXX"]},{"ox":0,"oy":1,"rows":[".XXX","XXXX",".XX."]}]},{"n":2,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓"],"layers":[{"ox":0,"oy":0,"rows":["..XX",".XXX","XXXX"]},{"ox":1,"oy":-1,"rows":[".X.","XXX","XXX",".XX"]}]},{"n":3,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓"],"layers":[{"ox":0,"oy":0,"rows":["XXXX","XXXX","XXXX"]},{"ox":1,"oy":0,"rows":[".XX","XXX",".X."]}]},{"n":4,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓"],"layers":[{"ox":0,"oy":0,"rows":["..XX",".XXX","XXXX"]},{"ox":1,"oy":0,"rows":[".XX.","XXXX","XXX."]}]},{"n":5,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓"],"layers":[{"ox":0,"oy":0,"rows":["XXXX","XXXX","XXXX"]},{"ox":1,"oy":0,"rows":[".X.","XXX","XX."]}]},{"n":6,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍"],"layers":[{"ox":0,"oy":0,"rows":["XXXX","XXXX","XXXX"]},{"ox":1,"oy":0,"rows":[".X.","XXX",".XX"]},{"ox":2,"oy":2,"rows":["XX",".X"]}],"introduces":"🍍"},{"n":7,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍"],"layers":[{"ox":0,"oy":0,"rows":["..XX",".XXX","XXXX"]},{"ox":1,"oy":1,"rows":[".XX","XXX",".XX"]},{"ox":2,"oy":2,"rows":["XX.","XXX"]}]},{"n":8,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍"],"layers":[{"ox":0,"oy":0,"rows":["..XX",".XXX","XXXX"]},{"ox":1,"oy":1,"rows":["XXX","XXX",".X."]},{"ox":2,"oy":2,"rows":["XXX","XX."]}]},{"n":9,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍"],"layers":[{"ox":0,"oy":0,"rows":["XXXX","XXXX","XXXX"]},{"ox":-1,"oy":0,"rows":[".XX..","XXXXX","..X.."]},{"ox":2,"oy":1,"rows":["XX","XX"]}]},{"n":10,"chapter":"Foundations","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍"],"layers":[{"ox":0,"oy":0,"rows":["..XX",".XXX","XXXX"]},{"ox":1,"oy":-1,"rows":[".X..",".XX.","XXXX",".XX."]},{"ox":1,"oy":1,"rows":[".XX","XXX",".X."]}]},{"n":11,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑"],"layers":[{"ox":0,"oy":0,"rows":["XXXX","XXXX","XXXX","XXXX"]},{"ox":2,"oy":1,"rows":[".X","XX","XX"]},{"ox":2,"oy":3,"rows":["XX",".X"]}],"introduces":"🍑"},{"n":12,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑"],"layers":[{"ox":0,"oy":0,"rows":["XXXX","XXXX","XXXX","XXXX"]},{"ox":1,"oy":1,"rows":[".X.","XXX",".X."]},{"ox":3,"oy":1,"rows":["X.","XX"]}]},{"n":13,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑"],"layers":[{"ox":0,"oy":0,"rows":[".XX.","XXXX","XXXX",".XX."]},{"ox":-1,"oy":1,"rows":[".XXX","XXXX","..X.","..X."]},{"ox":1,"oy":1,"rows":["XX.","XXX",".X."]}]},{"n":14,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑"],"layers":[{"ox":0,"oy":0,"rows":["XXXX","XXXX","XXXX","XXXX"]},{"ox":1,"oy":-1,"rows":[".X.",".X.","XXX",".XX",".X."]},{"ox":3,"oy":3,"rows":["XX","X."]}]},{"n":15,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑"],"layers":[{"ox":0,"oy":0,"rows":[".XXX.","XXXXX","XXXXX",".XXX."]},{"ox":1,"oy":1,"rows":[".XX.","XXXX",".XX."]},{"ox":3,"oy":1,"rows":["X.","XX"]}]},{"n":16,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XXXXX","XXXXX","XXXXX"]},{"ox":1,"oy":1,"rows":[".XX","XXX",".XX"]},{"ox":1,"oy":3,"rows":["XXX"]}],"introduces":"🌽"},{"n":17,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽"],"layers":[{"ox":0,"oy":0,"rows":[".XXX.","XXXXX","XXXXX",".XXX."]},{"ox":2,"oy":1,"rows":["XX..","XXXX",".XX.",".X.."]},{"ox":2,"oy":1,"rows":[".X.","XXX",".X."]}]},{"n":18,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽"],"layers":[{"ox":0,"oy":0,"rows":[".XXX.","XXXXX","XXXXX",".XXX."]},{"ox":2,"oy":0,"rows":[".X.","XXX","XXX",".X."]},{"ox":2,"oy":1,"rows":[".X","XX"]},{"ox":3,"oy":1,"rows":["X.","XX"]}]},{"n":19,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽"],"layers":[{"ox":0,"oy":0,"rows":[".XXX.","XXXXX","XXXXX",".XXX."]},{"ox":2,"oy":0,"rows":[".X.","XXX","XXX",".X."]},{"ox":3,"oy":2,"rows":["X.","XX"]},{"ox":2,"oy":2,"rows":[".X","XX"]}]},{"n":20,"chapter":"Terraces","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽"],"layers":[{"ox":0,"oy":0,"rows":[".XXX.","XXXXX","XXXXX",".XXX."]},{"ox":0,"oy":0,"rows":["..X.","XXXX",".XXX","..X."]},{"ox":2,"oy":1,"rows":[".X.","XXX",".X."]},{"ox":1,"oy":3,"rows":["XXX"]}]},{"n":21,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XX.XX","X.X.X","XXXXX"]},{"ox":0,"oy":0,"rows":[".XXX.","XX.XX","..X..","..X.."]},{"ox":2,"oy":1,"rows":["XXX",".X."]},{"ox":3,"oy":0,"rows":[".X","XX"]}],"introduces":"🍄"},{"n":22,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XX.XX","X.X.X","XXXXX"]},{"ox":0,"oy":1,"rows":[".XX.","XXXX","..XX","..X."]},{"ox":2,"oy":3,"rows":["XXX",".X."]},{"ox":2,"oy":2,"rows":[".X","XX"]}]},{"n":23,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","X...X","X...X","XXXXX"]},{"ox":0,"oy":0,"rows":[".XXX.","X...X","X...X",".XXX."]},{"ox":1,"oy":1,"rows":["XXX.","X..X",".XX."]},{"ox":2,"oy":0,"rows":[".X","XX","XX"]}]},{"n":24,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","X...X","X...X","XXXXX"]},{"ox":0,"oy":0,"rows":[".XXX.","X...X","X...X",".XXX."]},{"ox":2,"oy":-1,"rows":[".X..","XX..","...X",".XX.",".X.."]},{"ox":3,"oy":1,"rows":["XX.","..X","XX."]}]},{"n":25,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XX.XX","X.X.X","XXXXX"]},{"ox":1,"oy":1,"rows":[".XX.","XXXX","XXXX","..X."]},{"ox":3,"oy":1,"rows":[".X","XX","XX"]},{"ox":4,"oy":3,"rows":["XX","X."]}]},{"n":26,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","X...X","X...X","XXXXX"]},{"ox":0,"oy":-1,"rows":[".XX..",".XXX.","X...X",".XXX.","..X.."]},{"ox":0,"oy":-1,"rows":["..X.",".XXX","X...",".XX.","..X."]},{"ox":1,"oy":-1,"rows":[".X.",".XX","X..",".XX"]}],"introduces":"🌰"},{"n":27,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","X...X","X...X","XXXXX"]},{"ox":0,"oy":0,"rows":["XXXX.","X...X","X...X",".XXX."]},{"ox":1,"oy":-1,"rows":[".X..","XXX.","X..X",".XX."]},{"ox":1,"oy":0,"rows":[".X.","XXX",".XX"]}]},{"n":28,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XX.XX","X.X.X","XXXXX"]},{"ox":0,"oy":0,"rows":[".XXX.","XX.XX","X.X..",".XXX."]},{"ox":1,"oy":1,"rows":[".XX","XXX",".X."]},{"ox":1,"oy":2,"rows":["XXX",".X."]}]},{"n":29,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XX.XX","X.X.X","XX.XX","XXXXX"]},{"ox":-1,"oy":0,"rows":["..X...",".XXX..","XXXXXX","..XX.."]},{"ox":1,"oy":1,"rows":[".X.","XXX",".XX"]},{"ox":3,"oy":3,"rows":["XX","X."]}]},{"n":30,"chapter":"Rings","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","X...X","X...X","X...X","XXXXX"]},{"ox":0,"oy":0,"rows":[".XXX.","X...X","X...X","X...X",".XXX."]},{"ox":0,"oy":-1,"rows":["..X",".XX","X..","X..",".XX","..X"]},{"ox":1,"oy":1,"rows":["XX","X.","X.","XX"]}]},{"n":31,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XXXXX","XXXXX","XXXXX","XXXXX"]},{"ox":2,"oy":1,"rows":[".X.","XXX","XXX",".X."]},{"ox":2,"oy":3,"rows":["XX",".X"]},{"ox":2,"oy":2,"rows":[".X","XX"]},{"ox":2,"oy":3,"rows":["XX",".X"]}],"introduces":"🍒"},{"n":32,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XXXXX","XXXXX","XXXXX","XXXXX"]},{"ox":1,"oy":1,"rows":["..X.",".XXX","XXXX",".XX."]},{"ox":3,"oy":3,"rows":["XX","XX"]},{"ox":2,"oy":2,"rows":[".X","XX"]},{"ox":3,"oy":3,"rows":["XX","X."]}]},{"n":33,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒"],"layers":[{"ox":0,"oy":0,"rows":["..X..","..X..","XXXXX","..X..","..X.."]},{"ox":0,"oy":0,"rows":["..X..","..X..","XXXXX","..X..","..X.."]},{"ox":2,"oy":1,"rows":[".X.","XXX","XXX",".X.",".X."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX",".XXX"]},{"ox":2,"oy":2,"rows":[".XX.","XXXX","XXX."]}]},{"n":34,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XXXXX","XXXXX","XXXXX","XXXXX"]},{"ox":2,"oy":0,"rows":[".X..","XXX.","XXXX","XXX.",".X.."]},{"ox":4,"oy":1,"rows":["X.","XX","XX"]},{"ox":3,"oy":3,"rows":["XX",".X"]},{"ox":3,"oy":2,"rows":[".X","XX"]}]},{"n":35,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒"],"layers":[{"ox":0,"oy":0,"rows":["..X..","..X..","XXXXX","..X..","..X.."]},{"ox":-1,"oy":2,"rows":["..XX.","XXXXX","..XX."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".XX.","XXXX",".XX."]},{"ox":1,"oy":2,"rows":["..XX","XXXX","..X."]},{"ox":2,"oy":1,"rows":[".X.","XXX",".XX",".X."]}]},{"n":36,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈"],"layers":[{"ox":0,"oy":0,"rows":["..X..","..X..","XXXXX","..X..","..X.."]},{"ox":0,"oy":0,"rows":["..X..","..X..","XXXXX","..X..","..X.."]},{"ox":2,"oy":1,"rows":[".X.","XXX","XXX",".X."]},{"ox":1,"oy":1,"rows":[".X..",".XXX","XXX.","..X."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX",".X.."]},{"ox":1,"oy":1,"rows":[".XX","XXX",".XX"]}],"introduces":"🍈"},{"n":37,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XXXXX","XXXXX","XXXXX","XXXXX"]},{"ox":1,"oy":0,"rows":[".XX.","XXXX","XXXX","XXXX"]},{"ox":1,"oy":2,"rows":[".XX.","XXXX"]},{"ox":2,"oy":3,"rows":["XX",".X"]},{"ox":3,"oy":2,"rows":["X.","XX"]}]},{"n":38,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XXXXX","XXXXX","XXXXX","XXXXX"]},{"ox":-1,"oy":0,"rows":["...X..",".XXX..","XXXXXX",".XXXX."]},{"ox":1,"oy":2,"rows":[".XX","XXX",".X."]},{"ox":2,"oy":3,"rows":["XX",".X"]},{"ox":3,"oy":3,"rows":["XX","X."]}]},{"n":39,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈"],"layers":[{"ox":0,"oy":0,"rows":["..X..","..X..","XXXXX","..X..","..X.."]},{"ox":1,"oy":1,"rows":[".X..",".XXX","XXXX",".X.."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX",".XXX"]},{"ox":3,"oy":3,"rows":["XXX","XXX","XX."]},{"ox":2,"oy":2,"rows":[".XX.","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".XX.","XXXX",".XX."]}]},{"n":40,"chapter":"Crossroads","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XXXXX","XXXXX","XXXXX","XXXXX"]},{"ox":-1,"oy":1,"rows":[".XXXX","XXXXX",".XXXX","..XX."]},{"ox":1,"oy":1,"rows":[".XX","XXX",".XX"]},{"ox":2,"oy":2,"rows":["XX","XX"]},{"ox":2,"oy":3,"rows":["XX","X."]}]},{"n":41,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊"],"layers":[{"ox":0,"oy":0,"rows":["XXXXX","XX.XX","X.X.X","XX.XX","XXXXX"]},{"ox":0,"oy":0,"rows":["..XX.","XX.X.","X.X.X","XX.X.",".XXX."]},{"ox":2,"oy":1,"rows":[".X.","XXX","XXX","XX."]},{"ox":1,"oy":3,"rows":[".XX","XXX",".X."]},{"ox":3,"oy":2,"rows":["X.","XX","X."]}],"introduces":"🍊"},{"n":42,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XX.X.X","X.X.XX","XX.X.X","XXXXXX"]},{"ox":2,"oy":1,"rows":[".XX.","XXXX","XXXX","XXX.",".XX."]},{"ox":2,"oy":3,"rows":[".XX.","XXXX",".XX."]},{"ox":5,"oy":3,"rows":["X.","XX","X."]},{"ox":5,"oy":4,"rows":["XX","X."]}]},{"n":43,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX",".XXXX.","..XX.."]},{"ox":2,"oy":1,"rows":[".XXX","XXXX","XXXX",".XXX"]},{"ox":2,"oy":1,"rows":[".XX.",".XXX","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".XX.","XXXX",".XX."]},{"ox":3,"oy":2,"rows":["XX.","XXX",".X."]}]},{"n":44,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XX.X.X","X.X.XX","XX.X.X","XXXXXX"]},{"ox":1,"oy":0,"rows":[".XXX.",".XXXX","XXXXX",".XXX.","..X.."]},{"ox":3,"oy":0,"rows":[".X..","XXX.","XXXX",".X.."]},{"ox":4,"oy":1,"rows":[".X.","XXX",".X."]},{"ox":4,"oy":2,"rows":[".X","XX"]}]},{"n":45,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":0,"rows":["..X..",".XXX.","XXXXX","..XXX","..XX."]},{"ox":3,"oy":1,"rows":[".X.","XXX","XXX","XX."]},{"ox":3,"oy":3,"rows":["XXX","XXX",".X."]},{"ox":4,"oy":2,"rows":["X.","XX","XX"]},{"ox":3,"oy":4,"rows":["XXX",".X."]}]},{"n":46,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XX.X.X","X.X.XX","XX.X.X","XXXXXX"]},{"ox":1,"oy":0,"rows":["..X...",".XXX..","XXXXXX","XXXX..","..XX.."]},{"ox":3,"oy":2,"rows":[".X..","XXXX","XXX.",".X.."]},{"ox":3,"oy":3,"rows":[".X.","XXX",".X."]},{"ox":5,"oy":5,"rows":["XX","X."]},{"ox":4,"oy":4,"rows":[".X","XX"]}],"introduces":"🍐"},{"n":47,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":2,"rows":[".XXX..",".XXXXX","XXXXX.","..XXX."]},{"ox":1,"oy":2,"rows":["..X.","XXXX",".XXX","..X."]},{"ox":3,"oy":3,"rows":[".X.","XXX",".X."]},{"ox":3,"oy":5,"rows":["XX",".X"]},{"ox":4,"oy":5,"rows":["XX","X."]}]},{"n":48,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":2,"rows":["..XX..",".XXXXX","XXXXX.",".XXXX."]},{"ox":2,"oy":3,"rows":[".XX.","XXXX",".XXX",".X.."]},{"ox":4,"oy":3,"rows":[".X.","XXX","XX."]},{"ox":5,"oy":3,"rows":["X.","XX","X."]},{"ox":5,"oy":4,"rows":["X.","XX"]}]},{"n":49,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XX.X.X","X.X.XX","XX.X.X","X.X.XX","XXXXXX"]},{"ox":0,"oy":0,"rows":["..XX..",".X.X..","X.X.XX","XX.X.X","..X.X.","..XX.."]},{"ox":3,"oy":2,"rows":[".X.","XXX","XXX",".X."]},{"ox":3,"oy":2,"rows":[".X","XX","XX"]},{"ox":4,"oy":4,"rows":["XX","X."]},{"ox":4,"oy":3,"rows":["X.","XX"]}]},{"n":50,"chapter":"Facets","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XX.X.X","X.X.XX","XX.X.X","X.X.XX","XXXXXX"]},{"ox":1,"oy":-1,"rows":["..X...","..X...","XXXX..","XXXXXX",".XXX..","..X..."]},{"ox":3,"oy":1,"rows":[".X.","XXX","XXX",".X."]},{"ox":3,"oy":1,"rows":[".X","XX",".X",".X"]},{"ox":4,"oy":2,"rows":["X.","XX"]},{"ox":3,"oy":2,"rows":[".X","XX"]}]},{"n":51,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠"],"layers":[{"ox":0,"oy":0,"rows":["X....X","X....X","XXXXXX","XXXXXX","X....X","X....X"]},{"ox":-1,"oy":3,"rows":["..XXXX.","XXXXXXX",".XXXXX."]},{"ox":1,"oy":3,"rows":[".XXX.","XXXXX",".XXX."]},{"ox":3,"oy":3,"rows":["XXX","XXX",".XX"]},{"ox":4,"oy":2,"rows":[".X.","XXX","XX."]},{"ox":3,"oy":2,"rows":[".X.","XXX",".X."]}],"introduces":"🍠"},{"n":52,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠"],"layers":[{"ox":0,"oy":0,"rows":["X....X","X....X","XXXXXX","XXXXXX","X....X","X....X"]},{"ox":0,"oy":2,"rows":["X....X","XXXXXX","XXXXXX","X....X"]},{"ox":-1,"oy":4,"rows":[".XXXXX","XXXXXX"]},{"ox":2,"oy":4,"rows":["XXXX","XXXX"]},{"ox":2,"oy":4,"rows":["XXXX",".XX."]},{"ox":3,"oy":4,"rows":["XXX",".XX"]}]},{"n":53,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠"],"layers":[{"ox":0,"oy":0,"rows":["X....X","X....X","XXXXXX","XXXXXX","X....X","X....X"]},{"ox":0,"oy":2,"rows":["X....X","XXXXXX","XXXXXX","X....X"]},{"ox":0,"oy":3,"rows":[".XXX..","XXXXXX","..XXX."]},{"ox":4,"oy":2,"rows":["XX.","XXX","XX.","XX."]},{"ox":4,"oy":2,"rows":[".X.","XXX","XX.",".X."]},{"ox":4,"oy":3,"rows":[".X.","XXX",".X."]}]},{"n":54,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠"],"layers":[{"ox":0,"oy":0,"rows":["X....X","X....X","XXXXXX","XXXXXX","X....X","X....X"]},{"ox":0,"oy":2,"rows":["X....X","XXXXXX","XXXXXX","X....X"]},{"ox":-1,"oy":4,"rows":[".XXXXX","XXXXXX",".....X"]},{"ox":1,"oy":4,"rows":["XXXX.","XXXXX"]},{"ox":1,"oy":3,"rows":["..X.","XXXX",".XX."]},{"ox":2,"oy":4,"rows":[".X.","XXX",".X."]}]},{"n":55,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX"]},{"ox":1,"oy":1,"rows":["..X..","XXXXX","XXXXX",".XXX.",".XX.."]},{"ox":1,"oy":3,"rows":[".XX.","XXXX",".XX."]},{"ox":3,"oy":5,"rows":["XX","X."]},{"ox":2,"oy":4,"rows":[".X","XX"]},{"ox":3,"oy":4,"rows":["X.","XX"]}]},{"n":56,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞"],"layers":[{"ox":0,"oy":0,"rows":["X....X","X....X","XXXXXX","XXXXXX","X....X","X....X"]},{"ox":-1,"oy":2,"rows":[".X...X.","XXXXXXX","XXXXXXX",".....X."]},{"ox":1,"oy":2,"rows":["....X.","XXXXXX","XXXXX."]},{"ox":1,"oy":4,"rows":["XXXXXX",".XXXX."]},{"ox":4,"oy":3,"rows":["XXX","XXX",".X."]},{"ox":4,"oy":2,"rows":[".X.","XXX",".X.",".X."]}],"introduces":"🍞"},{"n":57,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX"]},{"ox":-1,"oy":-1,"rows":["...X..","...X..","..XXXX","XXXXXX","..XXXX","...X..","...X.."]},{"ox":3,"oy":3,"rows":[".XX.","XXXX",".XX."]},{"ox":5,"oy":3,"rows":[".X.","XXX"]},{"ox":6,"oy":3,"rows":[".X","XX"]},{"ox":6,"oy":4,"rows":["XX",".X"]}]},{"n":58,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX"]},{"ox":2,"oy":0,"rows":[".X...",".XX..","XXXXX","XXXXX","XXXX.","..X.."]},{"ox":3,"oy":3,"rows":[".XX.","XXXX",".XX."]},{"ox":6,"oy":3,"rows":["X.","XX","X."]},{"ox":5,"oy":4,"rows":["XX",".X"]},{"ox":5,"oy":4,"rows":["XX",".X"]}]},{"n":59,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞"],"layers":[{"ox":0,"oy":0,"rows":["X....X","X....X","XXXXXX","XXXXXX","X....X","X....X"]},{"ox":0,"oy":2,"rows":["X....X","XXXXXX","XXXXXX","X....X"]},{"ox":0,"oy":3,"rows":[".XXX..","XXXXXX",".XXXX."]},{"ox":2,"oy":2,"rows":[".X..","XXXX","XXXX",".XX."]},{"ox":2,"oy":4,"rows":[".XX.","XXXX",".XX."]},{"ox":3,"oy":5,"rows":["XXX","XXX",".X."]}]},{"n":60,"chapter":"Spans","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX"]},{"ox":1,"oy":1,"rows":["..X...",".XXX..","XXXXXX","XXXXX.","..XX..","..X..."]},{"ox":3,"oy":3,"rows":[".X.","XXX","XXX",".X."]},{"ox":5,"oy":3,"rows":["X.","X.","XX"]},{"ox":5,"oy":3,"rows":["X","X","X"]},{"ox":4,"oy":5,"rows":["XX","X."]},{"ox":4,"oy":4,"rows":["X.","XX"]}]},{"n":61,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX",".XXXX.","..XX..","..XX..",".XXXX.","XXXXXX"]},{"ox":2,"oy":0,"rows":["XXX.","XXXX",".XX.",".XX.","XXXX",".XXX"]},{"ox":1,"oy":1,"rows":["..X.",".XXX",".XXX","XXXX","..X."]},{"ox":1,"oy":2,"rows":["..X.",".XXX","XXXX","..X."]},{"ox":3,"oy":2,"rows":[".X.","XX.","XXX",".X."]},{"ox":2,"oy":4,"rows":[".XX","XXX"]},{"ox":4,"oy":4,"rows":["X.","XX"]}],"introduces":"🍩"},{"n":62,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","X.XX.X","X.XX.X","XXXXXX","XXXXXX"]},{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","X.XX.X","X.XX..",".XXXX.","..XX.."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX","XXXX","..X."]},{"ox":3,"oy":2,"rows":[".X.","XXX","XX."]},{"ox":3,"oy":2,"rows":[".X","XX",".X"]},{"ox":4,"oy":4,"rows":["XX","X."]},{"ox":3,"oy":3,"rows":[".X","XX"]}]},{"n":63,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX",".XXXX.","..XX..","..XX..",".XXXX.","XXXXXX"]},{"ox":2,"oy":0,"rows":[".XXX","XXXX",".XX.",".XX.","XXXX",".XXX"]},{"ox":4,"oy":0,"rows":[".X.","XXX","XX.","XX.","XXX",".X."]},{"ox":4,"oy":2,"rows":["XX","XX","XX","XX",".X"]},{"ox":4,"oy":3,"rows":["XX","XX","XX",".X"]},{"ox":3,"oy":3,"rows":[".X.","XXX",".X."]},{"ox":4,"oy":4,"rows":[".X","XX"]}]},{"n":64,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","X.XX.X","X.XX.X","XXXXXX","XXXXXX"]},{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","X.XX.X","X.XX.X",".XXXX.","..XX.."]},{"ox":2,"oy":0,"rows":["..X..",".XX..",".XX.X",".XX..","XXX..",".X..."]},{"ox":4,"oy":2,"rows":[".X","XX","XX","XX"]},{"ox":5,"oy":3,"rows":["X.","XX","X."]},{"ox":4,"oy":5,"rows":["XX",".X"]},{"ox":5,"oy":5,"rows":["XX","X."]}]},{"n":65,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","X.XX.X","X.XX.X","XXXXXX","XXXXXX"]},{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","X.XX.X","X.XX.X",".XXXX.","..XX.."]},{"ox":2,"oy":0,"rows":["..X.","XXX.",".XX.",".XX.","XXXX"]},{"ox":2,"oy":3,"rows":["XXX",".XX",".XX"]},{"ox":4,"oy":3,"rows":["X.","XX","X."]},{"ox":3,"oy":4,"rows":[".X","XX"]},{"ox":3,"oy":5,"rows":["XX",".X"]}]},{"n":66,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","X.XX.X","X.XX.X","XXXXXX","XXXXXX"]},{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","X.XX.X","X.XX.X",".XXXX.",".XXX.."]},{"ox":0,"oy":2,"rows":["..XX..","..XX..","X.XX.X",".XXX..","..X..."]},{"ox":0,"oy":2,"rows":["..X.","..XX","X.XX","..XX"]},{"ox":3,"oy":3,"rows":["X.","XX","XX"]},{"ox":3,"oy":4,"rows":["X.","XX"]},{"ox":2,"oy":4,"rows":[".X","XX"]}],"introduces":"🍪"},{"n":67,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","X.XX.X","X.XX.X","XXXXXX","XXXXXX"]},{"ox":0,"oy":0,"rows":["..XX..","XXXXX.","X.XX.X","X.XX.X",".XXXX.","..XX.."]},{"ox":0,"oy":0,"rows":["..X.",".XXX","X.XX","..XX","..XX","..X."]},{"ox":2,"oy":2,"rows":["XXX",".XX",".XX",".X."]},{"ox":4,"oy":3,"rows":["XX","XX","X."]},{"ox":3,"oy":3,"rows":[".X","XX"]},{"ox":4,"oy":3,"rows":["X.","XX"]}]},{"n":68,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","X.XX.X","X.XX.X","XXXXXX","XXXXXX"]},{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","X.XX.X","X.XX.X","XXXXX.","..XX.."]},{"ox":0,"oy":2,"rows":["..XX","X.XX","X.XX",".XXX","..X."]},{"ox":1,"oy":3,"rows":[".X.","XXX","XXX",".X."]},{"ox":1,"oy":3,"rows":[".X",".X","XX",".X"]},{"ox":2,"oy":6,"rows":["XX","X."]},{"ox":1,"oy":5,"rows":[".X","XX"]}]},{"n":69,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX",".XXXX.","..XX..","..XX..",".XXXX.","XXXXXX"]},{"ox":2,"oy":-1,"rows":[".X..","XXXX","XXXX",".XX.","XXXX","XXX.",".X.."]},{"ox":2,"oy":1,"rows":[".XX.","XXXX",".XX.","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".XX.","XXXX","XXX.",".XX."]},{"ox":2,"oy":2,"rows":[".X.","XXX","XXX",".X."]},{"ox":2,"oy":2,"rows":[".X.",".XX","XX.",".X."]},{"ox":3,"oy":4,"rows":["XX","XX",".X"]}]},{"n":70,"chapter":"Hourglass","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX",".XXXX.","..XX..","..XX..",".XXXX.","XXXXXX"]},{"ox":2,"oy":0,"rows":["XXX.","XXXX",".XX.",".XX.","XXXX","XXXX"]},{"ox":2,"oy":0,"rows":[".X..","XXX.",".XX.",".XX.","XXXX",".XX."]},{"ox":3,"oy":2,"rows":[".X.","XXX","XXX","XXX",".X."]},{"ox":3,"oy":2,"rows":[".X.",".XX","XXX",".XX"]},{"ox":3,"oy":3,"rows":[".X.","XXX",".XX"]},{"ox":3,"oy":4,"rows":[".X.","XXX",".X."]}]},{"n":71,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","X....X","X....X","X....X","X....X","XXXXXX"]},{"ox":0,"oy":0,"rows":[".XXXXX","X....X","X....X","X....X","X....X",".XXXX."]},{"ox":0,"oy":0,"rows":[".XXXX.","X....X","X....X","X....X",".....X","..XXX."]},{"ox":0,"oy":0,"rows":[".XXXX.",".....X","X....X","X....X",".....X","..XX.."]},{"ox":1,"oy":-1,"rows":["..X..",".XXX.","X...X","X...X","....X","..X.."]},{"ox":2,"oy":-1,"rows":["..X..",".XXX.","X..XX","X..X."]},{"ox":3,"oy":0,"rows":[".XX.","XXXX","X.X."]}],"introduces":"🍫"},{"n":72,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","X....X","X....X","X....X","X....X","XXXXXX"]},{"ox":-1,"oy":-1,"rows":["...X...","..XXX..",".X...X.","XX...XX",".X...X.","..XXX..","...XX.."]},{"ox":1,"oy":-1,"rows":["..X...",".XXX..","....X.","X...XX","X...X.",".XXX..","..X..."]},{"ox":1,"oy":1,"rows":["..XX..","....X.","X...XX","X...X.",".XXX..","..X..."]},{"ox":1,"oy":1,"rows":["..XX..","....X.","X...XX","....X.","..XX..","..X..."]},{"ox":5,"oy":2,"rows":["XX..","..X.","..XX","XXX.",".X.."]},{"ox":5,"oy":3,"rows":[".XX.","..XX","XXX.",".X.."]}]},{"n":73,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","X....X","X....X","X....X","X....X","XXXXXX"]},{"ox":0,"oy":0,"rows":[".XXXX.","X....X","X....X","X....X","X....X","XXXXX."]},{"ox":-1,"oy":-1,"rows":["...X..","..XXX.",".X....","XX...X",".X...X","..XXX.","...X.."]},{"ox":0,"oy":2,"rows":[".XXX.",".X..X","XX..X",".XXX.","..X.."]},{"ox":0,"oy":2,"rows":["..XX.",".X...","XX..X",".XXX.","..X.."]},{"ox":0,"oy":2,"rows":["..X..",".X...","XX..X",".XXX.","..X.."]},{"ox":1,"oy":4,"rows":[".X..","XX.X","XXX.",".X.."]}]},{"n":74,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫"],"layers":[{"ox":0,"oy":0,"rows":["X.X.X","X.X.X","X.X.X","X.X.X","X.X.X","X.X.X"]},{"ox":0,"oy":0,"rows":["X.X..","X.X.X","X.X.X","X.X.X","X.X.X","X.X.X"]},{"ox":0,"oy":0,"rows":["..X..","X.X.X","X.X.X","X.X.X","X.X.X","..X.."]},{"ox":0,"oy":-1,"rows":["..X..","..X..","X.X.X","X.X.X","X.X.X","..X..","..X.."]},{"ox":0,"oy":-1,"rows":["..X..","..X..","X.X..","X.X.X","X.X.X","..X..","..X.."]},{"ox":1,"oy":3,"rows":[".XX.","XXXX","XXX.",".X.."]},{"ox":0,"oy":4,"rows":[".XXX","XXXX",".XX."]}]},{"n":75,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫"],"layers":[{"ox":0,"oy":0,"rows":["X.X.X","X.X.X","X.X.X","X.X.X","X.X.X","X.X.X"]},{"ox":0,"oy":0,"rows":["X.X.X","X.X.X","X.X.X","X.X.X","X.X.X","..X.X"]},{"ox":0,"oy":0,"rows":["..X..","X.X.X","X.X.X","X.X.X","X.X.X","..X.."]},{"ox":0,"oy":0,"rows":["..X..","..X.X","X.X.X","X.X.X","X.X.X","..X.."]},{"ox":1,"oy":1,"rows":["..X..",".XX..","XXXXX",".XXX.","..X.."]},{"ox":1,"oy":2,"rows":["..X.",".XXX","XXXX",".XX."]},{"ox":2,"oy":3,"rows":[".X..","XXXX","XXX.",".X.."]}]},{"n":76,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬"],"layers":[{"ox":0,"oy":0,"rows":["X.X.X","X.X.X","X.X.X","X.X.X","X.X.X","X.X.X"]},{"ox":0,"oy":0,"rows":["X.X..","X.X.X","X.X.X","X.X.X","X.X.X","X.X.X"]},{"ox":0,"oy":0,"rows":["..X..","X.X.X","X.X.X","X.X.X","X.X.X","..X.."]},{"ox":0,"oy":0,"rows":["..X..","X.X..","X.X.X","X.X.X","..X.X","..X.."]},{"ox":0,"oy":-1,"rows":["..X..","..X..","X.X..","X.X.X","X.X.X","..X.."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX",".XX.",".X.."]},{"ox":1,"oy":3,"rows":[".XX.","XXXX",".XX."]},{"ox":3,"oy":3,"rows":["XX.","XXX","XX."]}],"introduces":"🍬"},{"n":77,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","X....X","X....X","X....X","X....X","XXXXXX"]},{"ox":0,"oy":0,"rows":["XXXXX.","X....X","X....X","X....X","X....X",".XXXX."]},{"ox":0,"oy":0,"rows":[".XXXX.","X....X","X....X","X....X","X.....",".XXX.."]},{"ox":0,"oy":0,"rows":[".XXX..","X....X","X....X","X....X","......",".XXX.."]},{"ox":0,"oy":0,"rows":[".XXX..","X.....","X....X","X....X","......","..XX.."]},{"ox":-1,"oy":0,"rows":["..XX..",".X....","XX...X",".X...X","......","...X.."]},{"ox":0,"oy":1,"rows":["..XX.",".X...","XX..X",".X...","..X.."]},{"ox":1,"oy":1,"rows":[".X..",".X..","XX.X",".X.."]}]},{"n":78,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","X....X","X....X","X....X","X....X","XXXXXX"]},{"ox":0,"oy":0,"rows":[".XXXXX","X....X","X....X","X....X","X....X",".XXXX."]},{"ox":0,"oy":0,"rows":[".XXXX.","X....X","X....X","X....X",".....X","..XXX."]},{"ox":0,"oy":0,"rows":[".XXXX.",".....X","X....X","X....X",".....X","..XX.."]},{"ox":0,"oy":0,"rows":["..XXX.",".....X","X....X","X....X","......","..XX.."]},{"ox":0,"oy":-1,"rows":["...X..","..XXX.",".....X","X....X","......","..XX.."]},{"ox":3,"oy":-1,"rows":["..X..","XXXX.","...XX","...X."]},{"ox":6,"oy":-1,"rows":[".X.","XXX",".XX"]}]},{"n":79,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬"],"layers":[{"ox":0,"oy":0,"rows":["X.X.X","X.X.X","X.X.X","X.X.X","X.X.X","X.X.X"]},{"ox":0,"oy":0,"rows":["X.X.X","X.X.X","X.X.X","X.X.X","X.X.X","..X.."]},{"ox":0,"oy":0,"rows":["..X..","X.X.X","X.X.X","X.X.X","X.X.X","..X.."]},{"ox":-1,"oy":2,"rows":["..XX.","XXXXX",".XXXX","..XX."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX","XXXX",".X.."]},{"ox":1,"oy":1,"rows":[".X..","XXX.","XXXX",".XX."]},{"ox":1,"oy":1,"rows":[".X..",".XX.","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".X.","XXX","XXX",".X."]}]},{"n":80,"chapter":"Colonnade","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬"],"layers":[{"ox":0,"oy":0,"rows":["X.X.X","X.X.X","X.X.X","X.X.X","X.X.X","X.X.X"]},{"ox":0,"oy":0,"rows":["..X.X","X.X.X","X.X.X","X.X.X","X.X.X","..X.X"]},{"ox":0,"oy":0,"rows":["..X..","X.X.X","X.X.X","X.X.X","X.X.X","..X.."]},{"ox":1,"oy":0,"rows":["..X.",".XX.","XXXX","XXXX",".XX."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX","XXXX","..X."]},{"ox":2,"oy":1,"rows":[".X..","XXX.","XXXX",".XX."]},{"ox":2,"oy":3,"rows":["XXX.","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".X..","XXXX","XXX."]}]},{"n":81,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭"],"layers":[{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":1,"rows":["..XX..",".XXXX.","XXXXXX",".XXX..","..XX.."]},{"ox":0,"oy":1,"rows":["..XX.",".XXXX","XXXXX",".XXX.","..X.."]},{"ox":0,"oy":1,"rows":["..X..",".XXX.","XXXXX",".XXX.","..X.."]},{"ox":2,"oy":1,"rows":[".X..","XX..","XXXX","XXX.",".X.."]},{"ox":2,"oy":1,"rows":[".X..",".X..","XXXX","XXX.",".X.."]},{"ox":1,"oy":2,"rows":["..X.",".XXX","XXXX","..X."]},{"ox":2,"oy":4,"rows":["XXX","XXX",".X."]}],"introduces":"🍭"},{"n":82,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭"],"layers":[{"ox":0,"oy":0,"rows":["X..XXX","X.....","X.....",".....X",".....X","XXX..X"]},{"ox":0,"oy":0,"rows":["X..XXX","X.....","X.....",".....X",".....X","XXX..X"]},{"ox":0,"oy":0,"rows":["X..XXX","X.....","X.....",".....X",".....X","XXX..X"]},{"ox":0,"oy":0,"rows":["X..XXX","X.....","X.....",".....X",".....X",".XX..X"]},{"ox":0,"oy":0,"rows":["X..XXX","X.....","X.....",".....X",".....X",".XX..X"]},{"ox":0,"oy":0,"rows":["X..XXX","X.....","X.....",".....X",".....X",".XX..X"]},{"ox":-1,"oy":0,"rows":["...XXX.",".X.....","XX.....",".....XX",".....X.","..XX..."]},{"ox":1,"oy":-1,"rows":["..X...","..XX..","X.....","X...XX","....X.",".XX...","..X..."]},{"ox":2,"oy":2,"rows":[".XX..","X..XX","X..XX",".XX..","..X.."]}]},{"n":83,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭"],"layers":[{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":0,"rows":["...X..","..XX..",".XXXXX","XXXXXX","..XX..","..X..."]},{"ox":2,"oy":0,"rows":["..X..",".XX..","XXXXX","XXXXX",".XX.."]},{"ox":2,"oy":0,"rows":["..X..",".XX..","XXXXX","XXXX.","..X.."]},{"ox":2,"oy":0,"rows":["..X.",".XX.","XXXX",".XXX","..X."]},{"ox":2,"oy":1,"rows":["..X.",".XXX","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".XX.","XXXX",".XX.","..X."]},{"ox":3,"oy":1,"rows":[".X.",".XX","XXX",".X."]}]},{"n":84,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭"],"layers":[{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":1,"oy":0,"rows":["..X..",".XXX.","XXXXX","XXXXX",".XXX.","..X.."]},{"ox":1,"oy":0,"rows":["..X..","..XX.","XXXXX",".XXXX",".XXX."]},{"ox":3,"oy":0,"rows":[".X..",".XX.","XXXX","XXXX",".XX."]},{"ox":3,"oy":2,"rows":[".XX.","XXXX","XXXX",".XX."]},{"ox":3,"oy":2,"rows":[".XX.",".XX.","XXXX",".XX."]},{"ox":4,"oy":2,"rows":[".X.","XXX","XXX",".XX"]},{"ox":4,"oy":3,"rows":[".X.","XXX","XXX",".X."]}]},{"n":85,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭"],"layers":[{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":0,"rows":["...X..","..XX..","XXXXXX","XXXXX.","..XX..","..XX.."]},{"ox":1,"oy":2,"rows":[".XX..","XXXX.","XXXXX",".XXX.","..X.."]},{"ox":1,"oy":2,"rows":["..X..",".XXX.","XXXXX",".XXX.","..X.."]},{"ox":2,"oy":3,"rows":[".XX.","XXXX","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".X..",".XX.","XXXX",".XX.",".X.."]},{"ox":2,"oy":4,"rows":[".XX.","XXXX",".XX.",".X.."]},{"ox":2,"oy":4,"rows":[".XX.","XXXX",".XX."]}]},{"n":86,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯"],"layers":[{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX",".XXXXX","..XX..","...X.."]},{"ox":2,"oy":0,"rows":[".XX..",".XX..","XXXXX","XXXX.",".XX..","..X.."]},{"ox":2,"oy":0,"rows":["..X..",".XX..","XXXXX","XXXX.",".XX.."]},{"ox":2,"oy":2,"rows":[".XX.","XXXX","XXXX",".XX."]},{"ox":2,"oy":2,"rows":["..X.","XXXX","XXXX",".XX."]},{"ox":2,"oy":3,"rows":[".XX.","XXXX",".XX.","..X."]},{"ox":2,"oy":4,"rows":[".XX.","XXXX",".XX."]}],"introduces":"🍯"},{"n":87,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯"],"layers":[{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":0,"rows":["..X...","..XX..","XXXXXX","XXXXXX","..XX..","...X.."]},{"ox":0,"oy":2,"rows":["..XX..","XXXXXX","XXXXX.","..XX..","...X.."]},{"ox":0,"oy":2,"rows":["..XX.","XXXXX","XXXXX","..XX."]},{"ox":1,"oy":2,"rows":[".XX.","XXXX","XXXX",".XX."]},{"ox":1,"oy":2,"rows":[".XX.","XXX.","XXXX",".XX."]},{"ox":1,"oy":2,"rows":[".X..","XXX.","XXXX",".X.."]},{"ox":0,"oy":3,"rows":[".XX.","XXXX",".XX."]}]},{"n":88,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯"],"layers":[{"ox":0,"oy":0,"rows":["X..XXX","X.....","X.....",".....X",".....X","XXX..X"]},{"ox":0,"oy":0,"rows":["X..XXX","X.....","X.....",".....X",".....X","XXX..X"]},{"ox":-1,"oy":0,"rows":["...XX..","XX.....","XX.....",".....XX",".....X.","..XX.X."]},{"ox":-1,"oy":0,"rows":["...XX..","XX.....","XX.....",".....XX",".....X.","..XX.X."]},{"ox":-1,"oy":0,"rows":["...XX..",".X.....","XX.....",".....XX",".....X.","..XX.X."]},{"ox":-1,"oy":0,"rows":["...XX..",".X.....","XX.....",".....XX",".....X.","..XX.X."]},{"ox":-1,"oy":0,"rows":["...XX..",".X.....","XX.....",".....XX",".....X.","..XX.X."]},{"ox":-1,"oy":0,"rows":["...XX..",".X.....","XX.....",".....XX",".....X.","..XX..."]},{"ox":0,"oy":1,"rows":["..XX..",".X....","XX..XX","....X.","..XX.."]},{"ox":1,"oy":1,"rows":["..X...",".X....","XX.XXX","...X..","..XX.."]}]},{"n":89,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯"],"layers":[{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":0,"rows":["..X...","..XX..","XXXXX.","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":0,"rows":["..X..","..XX.",".XXXX","XXXXX","..XX.","..XX."]},{"ox":0,"oy":2,"rows":["..XX.",".XXXX","XXXXX","..XX.","..X.."]},{"ox":0,"oy":2,"rows":["..XX.",".XXXX","XXXXX","..XX."]},{"ox":2,"oy":2,"rows":[".X..","XXXX","XXXX",".XX."]},{"ox":2,"oy":3,"rows":[".XX.","XXXX","XXX.",".X.."]},{"ox":1,"oy":2,"rows":["..X.",".XXX","XXXX","..X."]}]},{"n":90,"chapter":"Pinwheel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯"],"layers":[{"ox":0,"oy":0,"rows":["..XX..","..XX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":0,"rows":["...X..","..XX..","XXXXXX",".XXXXX","..XX..","..XX.."]},{"ox":2,"oy":0,"rows":["..X..",".XX..","XXXXX","XXXXX",".XX..","..X.."]},{"ox":2,"oy":0,"rows":["..X..",".XX..","XXXXX","XXXX.",".XX.."]},{"ox":2,"oy":0,"rows":["..X.",".XX.","XXXX","XXXX",".XX."]},{"ox":2,"oy":1,"rows":[".XX.",".XXX","XXXX",".XX."]},{"ox":2,"oy":1,"rows":["..X.",".XXX","XXXX",".XX."]},{"ox":3,"oy":2,"rows":[".X..","XXXX","XXX.",".X.."]}]},{"n":91,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX"]},{"ox":0,"oy":0,"rows":[".XXX..",".XXXX.","XXXXXX","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":1,"rows":["..XX..",".XXXX.","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":1,"rows":["..X..","..XXX","XXXXX","..XXX","..X.."]},{"ox":1,"oy":2,"rows":["..X.",".XXX","XXXX","..X."]},{"ox":3,"oy":4,"rows":["XX.","XXX",".X."]},{"ox":3,"oy":4,"rows":[".X","XX",".X"]},{"ox":3,"oy":4,"rows":[".X","XX"]}],"introduces":"🍦"},{"n":92,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","X....X","X....X","X....X","X....X","XXXXXX"]},{"ox":0,"oy":0,"rows":[".XXXXX","X....X","X....X","X....X","X....X",".XXXXX"]},{"ox":0,"oy":0,"rows":[".XXXX.","X....X","X....X","X....X","X....X","..XXX."]},{"ox":-1,"oy":0,"rows":["..XXX..",".X...X.","XX...XX",".X...XX",".....X.","...X..."]},{"ox":-1,"oy":0,"rows":["..XXX..",".X...X.","XX...XX",".X...X.",".......","...X..."]},{"ox":-1,"oy":0,"rows":["..XXX..",".X...X.","XX...XX",".....X.",".......","...X..."]},{"ox":1,"oy":0,"rows":[".XXX..","X...X.","X...XX","....X."]},{"ox":3,"oy":-1,"rows":[".XX..","XXXX.","...XX"]},{"ox":5,"oy":-2,"rows":[".X.","XXX","XXX"]}]},{"n":93,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","X....X","X....X","X....X","X....X","XXXXXX"]},{"ox":0,"oy":0,"rows":["XXXXXX","X....X","X....X","X....X","X....X",".XXXXX"]},{"ox":0,"oy":0,"rows":[".XXXX.","X....X","X....X","X....X","X....X",".XXXX."]},{"ox":0,"oy":0,"rows":[".XXXX.","X.....","X....X","X....X","X....X","..XXX."]},{"ox":0,"oy":0,"rows":[".XXXX.","X.....","X....X","X....X","X.....","..XX.."]},{"ox":0,"oy":0,"rows":[".XXXX.","X.....","X....X","X....X","......","..XX.."]},{"ox":-1,"oy":0,"rows":["..XX...",".X.....","XX...XX",".X...X.",".......","...X..."]},{"ox":0,"oy":1,"rows":["..XX.",".X..X","XX..X",".X..."]},{"ox":2,"oy":0,"rows":[".X..","XXX.","X..X","X..."]}]},{"n":94,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":0,"rows":["...X..",".XXX..","XXXXXX","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":2,"rows":["..XX..","XXXXX.","XXXXXX","..XX..","..XX.."]},{"ox":0,"oy":2,"rows":["..XX.",".XXXX","XXXXX","..XX.","..X.."]},{"ox":2,"oy":2,"rows":[".XX.","XXX.","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".X..","XXX.","XXXX",".XX."]},{"ox":2,"oy":3,"rows":[".XX.","XXXX",".XX."]},{"ox":4,"oy":2,"rows":["XX","XX","XX",".X"]},{"ox":4,"oy":3,"rows":["XX","XX","XX"]}]},{"n":95,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX"]},{"ox":0,"oy":0,"rows":["..XXX.",".XXXXX","XXXXXX","XXXXXX",".XXXX.","..XXX."]},{"ox":2,"oy":0,"rows":["..X..",".XXX.","XXXXX","XXXXX",".XXX.","..X.."]},{"ox":2,"oy":0,"rows":["..X..",".XX..","XXXXX",".XXX.",".XX.."]},{"ox":2,"oy":1,"rows":["..X.",".XXX","XXXX","..X."]},{"ox":4,"oy":3,"rows":["XX.","XXX",".X."]},{"ox":4,"oy":3,"rows":[".X.","XXX",".X."]},{"ox":4,"oy":4,"rows":[".X","XX"]},{"ox":4,"oy":5,"rows":["XX",".X"]}]},{"n":96,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦","🍰"],"layers":[{"ox":0,"oy":0,"rows":["XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX","XXXXXX"]},{"ox":-1,"oy":-1,"rows":["...XX..","..XXX..",".XXXXXX","XXXXXXX",".XXXXX.","..XXX..","...X..."]},{"ox":1,"oy":-1,"rows":["..X...","..XX..",".XXXX.","XXXXXX",".XXXX.","..X..."]},{"ox":3,"oy":1,"rows":[".XX.","XXXX","XXXX","XXX."]},{"ox":3,"oy":1,"rows":[".X..",".XX.","XXXX",".XX."]},{"ox":3,"oy":3,"rows":[".XX","XXX",".X."]},{"ox":3,"oy":3,"rows":[".X.","XXX",".X."]},{"ox":5,"oy":4,"rows":["X.","XX"]},{"ox":4,"oy":5,"rows":["XX",".X"]}],"introduces":"🍰"},{"n":97,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦","🍰"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX",".XXXXX",".XXX.."]},{"ox":0,"oy":0,"rows":["...X..",".XXXX.","XXXXXX",".XXXX.","..XX.."]},{"ox":2,"oy":1,"rows":[".XX..","XXXX.","XXXXX",".XXX.","..X.."]},{"ox":2,"oy":1,"rows":["..X.",".XXX","XXXX",".XXX","..X."]},{"ox":2,"oy":1,"rows":["..X.",".XX.","XXXX",".XXX"]},{"ox":2,"oy":1,"rows":["..X.",".XX.","XXXX",".XX."]},{"ox":3,"oy":2,"rows":[".X.","XXX",".XX",".X."]},{"ox":4,"oy":2,"rows":[".X.","XXX","XX."]}]},{"n":98,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦","🍰"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":0,"rows":["..XX..","..XXX.","XXXXX.","XXXXXX","..XXX.","..XX.."]},{"ox":0,"oy":2,"rows":["..XX..",".XXXX.","XXXXXX","..XXX.","..XX.."]},{"ox":1,"oy":2,"rows":["..XX.",".XXXX","XXXXX",".XXX.","..X.."]},{"ox":1,"oy":2,"rows":["..X..",".XXX.","XXXXX",".XXX."]},{"ox":3,"oy":2,"rows":[".X..","XXX.","XXXX","XXX."]},{"ox":3,"oy":3,"rows":[".XX","XXX","XXX",".X."]},{"ox":3,"oy":3,"rows":[".X.","XXX","XXX",".X."]},{"ox":2,"oy":5,"rows":[".XXX","XXX."]}]},{"n":99,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦","🍰"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX",".XXXX.","..XXX.","..XX.."]},{"ox":0,"oy":0,"rows":["..XX..","..XXX.","XXXXXX",".XXXX.","..XX.."]},{"ox":2,"oy":1,"rows":[".XX..","XXXX.","XXXXX",".XXX.","..X.."]},{"ox":2,"oy":1,"rows":["..X..",".XXX.","XXXXX",".XXX."]},{"ox":3,"oy":2,"rows":[".XX.","XXXX","XXXX","..X."]},{"ox":3,"oy":2,"rows":[".XX.","XXXX",".XXX"]},{"ox":3,"oy":2,"rows":[".XX.","XXXX",".XX."]},{"ox":5,"oy":1,"rows":["X.","XX","XX","X."]}]},{"n":100,"chapter":"The Citadel","pool":["🍎","🍌","🍇","🍉","🍋","🍓","🍍","🍑","🌽","🍄","🌰","🍒","🍈","🍊","🍐","🍠","🍞","🍩","🍪","🍫","🍬","🍭","🍯","🍦","🍰"],"layers":[{"ox":0,"oy":0,"rows":["..XX..",".XXXX.","XXXXXX","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":0,"rows":["..XX..","..XXX.","XXXXXX",".XXXXX",".XXXX.","..X..."]},{"ox":0,"oy":1,"rows":["..XX..",".XXXX.","XXXXXX",".XXXX.","..XX.."]},{"ox":0,"oy":1,"rows":["..X..",".XXXX","XXXXX","..XXX","..XX."]},{"ox":2,"oy":2,"rows":[".XX.","XXXX","XXXX",".XX.",".X.."]},{"ox":2,"oy":2,"rows":[".XX.","XXX.","XXXX",".XX."]},{"ox":2,"oy":2,"rows":[".X..","XXX.","XXXX",".X.."]},{"ox":2,"oy":2,"rows":[".X.","XXX","XXX",".X."]},{"ox":3,"oy":2,"rows":[".X.","XXX","XX.",".X."]}]}];
+const CHAPTER_COUNT = 10;
+
+/* ---------- deterministic RNG (mulberry32) ---------- */
+function rngFrom(seed){
+  let a = seed >>> 0;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function shuffled(arr, rnd){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+
+/* ---------- geometry ---------- */
+const overlap = (a,b) => Math.abs(a.gx-b.gx) < 2 && Math.abs(a.gy-b.gy) < 2;
+
+function buildTiles(level){
+  const out = [];
+  let id = 0;
+  level.layers.forEach((L, layer) => {
+    L.rows.forEach((row, r) => {
+      for(let c=0;c<row.length;c++){
+        if(row[c] === "X") out.push({id:id++, gx:L.ox + 2*c, gy:L.oy + 2*r, layer:layer, sym:null});
+      }
+    });
+  });
+  return out;
+}
+
+/** Tiles in `list` that no higher-layer tile in `list` overlaps. */
+function freeOf(list){
+  return list.filter(t => !list.some(u => u.layer > t.layer && overlap(t,u)));
+}
+
+/* ------------------------------------------------------------
+   SOLVABILITY-GUARANTEED SYMBOL ASSIGNMENT ("forward peel")
+   Repeatedly take 3 currently-free tiles and stamp them with the
+   same symbol, then remove them. The removal order IS a valid
+   solve order, so the board is guaranteed clearable.
+   `partials` = {symbol: countAlreadyInTray} — those groups get
+   completed first so a mid-game shuffle stays solvable.
+   ------------------------------------------------------------ */
+function assignSymbols(tiles, pool, rnd, partials){
+  for(let attempt=0; attempt<80; attempt++){
+    const got = peelOnce(tiles, pool, rnd, partials || {});
+    if(got) return got;
+  }
+  return null;
+}
+
+function peelOnce(tiles, pool, rnd, partials){
+  let alive = tiles.map(t => ({id:t.id, gx:t.gx, gy:t.gy, layer:t.layer}));
+  const result = new Map();
+  const counts = new Map(pool.map(s => [s, 0]));
+  const queue = Object.keys(partials).map(s => ({sym:s, need:3 - partials[s]}))
+                                     .filter(g => g.need > 0);
+
+  while(alive.length){
+    const free = freeOf(alive);
+    let sym, need;
+    if(queue.length){ const g = queue.shift(); sym = g.sym; need = g.need; }
+    else {
+      need = 3;
+      let best = null, bestN = Infinity;
+      for(const s of shuffled(pool, rnd)){
+        const n = counts.get(s) || 0;
+        if(n < bestN){ bestN = n; best = s; }
+      }
+      sym = best;
+    }
+    if(free.length < need) return null;
+    const picked = shuffled(free, rnd).slice(0, need);
+    const taken = new Set(picked.map(t => t.id));
+    picked.forEach(t => result.set(t.id, sym));
+    counts.set(sym, (counts.get(sym) || 0) + need);
+    alive = alive.filter(t => !taken.has(t.id));
+  }
+  return result;
+}
+
+/* ---------- sound ---------- */
+let actx = null, soundOn = true;
+function blip(freqs, dur, vol){
+  if(!soundOn) return;
+  try{
+    if(!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if(actx.state === "suspended") actx.resume();
+    const now = actx.currentTime;
+    freqs.forEach((f,i) => {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = "triangle"; o.frequency.value = f;
+      g.gain.setValueAtTime(0, now + i*0.04);
+      g.gain.linearRampToValueAtTime(vol, now + i*0.04 + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + i*0.04 + dur);
+      o.connect(g); g.connect(actx.destination);
+      o.start(now + i*0.04); o.stop(now + i*0.04 + dur + 0.02);
+    });
+  }catch(e){ /* audio unavailable — game continues */ }
+}
+
+/* ---------- state ---------- */
+// DX/DY were the simulated-3D offset. At 0 the view is straight top-down:
+// half-grid neighbours still show half a face, but a tile placed dead-centre
+// on another is completely hidden.
+const TW = 48, TH = 58, HU = 24, HV = 29, DX = 0, DY = 0;
+const TRAY_SIZE = 5;
+const el = id => document.getElementById(id);
+const stage = el("stage"), trayEl = el("tray"), boardArea = el("boardArea");
+
+// Cap grows with the viewport so a small board fills a tablet screen without
+// making tiles gigantic on a phone. Phones land on 1.6, tablets around 2.2.
+function maxScale(aw, ah){
+  return Math.min(2.4, Math.max(1.6, Math.min(aw, ah) / 260));
+}
+const GUTTER = 40;      // keeps the board off the edges at every level size
+
+let cleared = new Set();
+try{
+  const v = JSON.parse(localStorage.getItem("ts_cleared") || "[]");
+  if(Array.isArray(v)) v.forEach(x => cleared.add(x));
+}catch(e){}
+let unlockAll = false;
+function saveCleared(){ try{ localStorage.setItem("ts_cleared", JSON.stringify([...cleared])); }catch(e){} }
+function nextLevel(){ let m = 1; for(let i=1;i<=PACK.length;i++){ if(cleared.has(i)) m = i + 1; } return Math.min(PACK.length, m); }
+function unlocked(n){ return unlockAll || n === 1 || cleared.has(n) || cleared.has(n - 1); }
+
+let S = null;          // active game state
+let busy = false;      // input lock while a match resolves
+
+function startLevel(index, seed){
+  const level = PACK[index];
+  const tiles = buildTiles(level);
+  const rnd = rngFrom(seed == null ? (Date.now() & 0xffffffff) : seed);
+  const map = assignSymbols(tiles, level.pool, rnd, {});
+  if(!map){ console.error("Generation failed for", level.name); return; }
+  tiles.forEach(t => { t.sym = map.get(t.id); });
+
+  S = {
+    levelIndex:index, level:level, tiles:tiles,
+    alive:new Set(tiles.map(t => t.id)),
+    tray:[], undos:3, history:[], rnd:rnd, over:false, lost:false, usedUndo:false
+  };
+  el("stageName").textContent = "Level " + level.n + " \u00b7 " + level.chapter;
+  renderBoard();
+  renderTray();
+  updateStats();
+  closeOverlay();
+  const stale = el("toast");
+  if(stale) stale.remove();          // never let a chapter banner follow you out
+  if(level.introduces) announceTile(level.introduces);
+}
+
+/** First level of a chapter brings one new tile design into the mix. */
+function announceTile(sym){
+  const d = document.createElement("div");
+  d.id = "toast";
+  d.innerHTML = '<span>New tile</span><span class="sym">' + sym + "</span>";
+  boardArea.appendChild(d);
+  setTimeout(() => {
+    if(!d.isConnected) return;
+    d.style.opacity = "0";
+    setTimeout(() => d.remove(), 420);
+  }, 2800);
+}
+
+function aliveTiles(){ return S.tiles.filter(t => S.alive.has(t.id)); }
+
+/* ---------- rendering ---------- */
+function renderBoard(){
+  stage.textContent = "";
+  const live = aliveTiles();
+  const free = new Set(freeOf(live).map(t => t.id));
+
+  let maxX = 0, maxY = 0, minY = Infinity;
+  live.forEach(t => {
+    const x = t.gx*HU + t.layer*DX, y = t.gy*HV + t.layer*DY;
+    maxX = Math.max(maxX, x + TW); maxY = Math.max(maxY, y + TH); minY = Math.min(minY, y);
+  });
+  if(!live.length){ minY = 0; }
+  const shift = -minY;
+
+  live.forEach(t => {
+    const b = document.createElement("button");
+    b.className = "tile " + (free.has(t.id) ? "free" : "blocked");
+    b.style.left = (t.gx*HU + t.layer*DX) + "px";
+    b.style.top  = (t.gy*HV + t.layer*DY + shift) + "px";
+    b.style.zIndex = String(t.layer*1000 + t.gy*20 + t.gx);
+    b.textContent = t.sym;
+    b.dataset.id = String(t.id);
+    b.setAttribute("aria-label",
+      free.has(t.id) ? ("Take " + t.sym + " tile") : (t.sym + " tile, covered"));
+    b.addEventListener("click", () => onTileClick(t, free.has(t.id), b));
+    stage.appendChild(b);
+  });
+
+  stage.style.width  = maxX + "px";
+  stage.style.height = (maxY + shift) + "px";
+  fitStage();
+}
+
+function fitStage(){
+  const bw = parseFloat(stage.style.width) || 1;
+  const bh = parseFloat(stage.style.height) || 1;
+  const aw = boardArea.clientWidth - GUTTER, ah = boardArea.clientHeight - GUTTER;
+  const s = Math.min(aw/bw, ah/bh, maxScale(aw, ah));
+  stage.style.transform = "scale(" + (s > 0 ? s : 1) + ")";
+}
+window.addEventListener("resize", fitStage);
+
+function renderTray(clearingSym){
+  trayEl.textContent = "";
+  for(let i=0;i<TRAY_SIZE;i++){
+    const d = document.createElement("div");
+    const sym = S.tray[i];
+    d.className = "slot" + (sym ? " filled" : "") +
+                  (clearingSym && sym === clearingSym ? " clearing" : "");
+    d.textContent = sym || "";
+    trayEl.appendChild(d);
+  }
+  trayEl.classList.toggle("hot", S.tray.length >= TRAY_SIZE - 1);
+}
+
+function updateStats(){
+  el("statLeft").textContent = String(S.alive.size);
+  el("statUndo").textContent = String(S.undos);
+  // An undo keeps you alive but forfeits the unlock, so say so the moment it happens.
+  el("undoStat").classList.toggle("tainted", S.usedUndo);
+  el("undoLabel").textContent = S.usedUndo ? "No unlock" : "Undos";
+  el("btnUndo").disabled = S.lost || S.undos <= 0 || !S.history.length || busy;
+  el("btnShuffle").disabled = busy || S.lost || S.alive.size === 0;
+}
+
+/* ---------- interaction ---------- */
+function onTileClick(tile, isFree, node){
+  if(busy || S.over) return;
+  if(!isFree){
+    node.classList.remove("nudge");
+    void node.offsetWidth;
+    node.classList.add("nudge");
+    showBlockers(tile);
+    blip([180], 0.07, 0.05);
+    return;
+  }
+  busy = true;
+  S.history.push({alive:[...S.alive], tray:S.tray.slice()});
+  if(S.history.length > 40) S.history.shift();
+
+  // insert next to same-symbol tiles so groups read as groups
+  let at = -1;
+  for(let i=S.tray.length-1;i>=0;i--){ if(S.tray[i] === tile.sym){ at = i; break; } }
+  const target = at >= 0 ? at + 1 : S.tray.length;
+
+  const rect = node.getBoundingClientRect();
+  S.alive.delete(tile.id);
+  S.tray.splice(target, 0, tile.sym);
+
+  renderBoard();
+  renderTray();
+  flyTo(rect, target, tile.sym, () => {
+    blip([520, 660], 0.09, 0.06);
+    resolveTray();
+  });
+}
+
+/** Briefly lift the tiles sitting on top of `tile`, so the stack teaches itself. */
+function showBlockers(tile){
+  aliveTiles()
+    .filter(u => u.layer > tile.layer && overlap(tile, u))
+    .forEach(u => {
+      const n = stage.querySelector('[data-id="' + u.id + '"]');
+      if(!n) return;
+      n.classList.add("blocker");
+      setTimeout(() => n.classList.remove("blocker"), 700);
+    });
+}
+
+function flyTo(fromRect, slotIndex, sym, done){
+  const slot = trayEl.children[slotIndex];
+  if(!slot || window.matchMedia("(prefers-reduced-motion: reduce)").matches){ done(); return; }
+  const to = slot.getBoundingClientRect();
+  const f = document.createElement("div");
+  f.className = "flyer";
+  f.textContent = sym;
+  f.style.left = fromRect.left + "px";
+  f.style.top = fromRect.top + "px";
+  f.style.width = fromRect.width + "px";
+  f.style.height = fromRect.height + "px";
+  f.style.fontSize = (fromRect.height * 0.44) + "px";
+  slot.style.visibility = "hidden";
+  el("fly").appendChild(f);
+  requestAnimationFrame(() => {
+    f.style.transform = "translate(" + (to.left - fromRect.left) + "px," + (to.top - fromRect.top) + "px)";
+    f.style.width = to.width + "px";
+    f.style.height = to.height + "px";
+    f.style.fontSize = (to.height * 0.44) + "px";
+  });
+  setTimeout(() => {
+    f.remove();
+    if(slot.isConnected) slot.style.visibility = "";
+    done();
+  }, 270);
+}
+
+function resolveTray(){
+  const tally = {};
+  S.tray.forEach(s => { tally[s] = (tally[s] || 0) + 1; });
+  const hit = Object.keys(tally).find(s => tally[s] >= 3);
+
+  if(hit){
+    renderTray(hit);
+    blip([660, 880, 1100], 0.16, 0.07);
+    setTimeout(() => {
+      let removed = 0;
+      S.tray = S.tray.filter(s => (s === hit && removed < 3) ? (removed++, false) : true);
+      renderTray();
+      busy = false;
+      updateStats();
+      checkEnd();
+    }, 240);
+    return;
+  }
+
+  busy = false;
+  updateStats();
+  checkEnd();
+}
+
+function checkEnd(){
+  if(S.alive.size === 0 && S.tray.length === 0){
+    S.over = true;
+    blip([660, 880, 1320, 1760], 0.22, 0.07);
+    showEnd(true);
+  } else if(S.tray.length >= TRAY_SIZE){
+    // A full tray ends the attempt. No undoing your way out of it —
+    // the level starts over, which is what makes the tray mean something.
+    S.over = true;
+    S.lost = true;
+    S.history = [];
+    blip([300, 220, 160], 0.3, 0.07);
+    updateStats();
+    showEnd(false);
+  }
+}
+
+/* ---------- undo / shuffle ---------- */
+el("btnUndo").addEventListener("click", () => {
+  if(busy || S.lost || !S.history.length || S.undos <= 0) return;
+  const snap = S.history.pop();
+  S.alive = new Set(snap.alive);
+  S.tray = snap.tray.slice();
+  S.undos--;
+  S.usedUndo = true;
+  S.over = false;
+  renderBoard(); renderTray(); updateStats(); closeOverlay();
+});
+
+el("btnShuffle").addEventListener("click", () => {
+  if(busy || !S.alive.size) return;
+  const partials = {};
+  S.tray.forEach(s => { partials[s] = (partials[s] || 0) + 1; });
+  const live = aliveTiles();
+  const map = assignSymbols(live, S.level.pool, S.rnd, partials);
+  if(!map){ return; }
+  live.forEach(t => { t.sym = map.get(t.id); });
+  S.history = [];
+  blip([420, 340, 500], 0.12, 0.05);
+  renderBoard(); updateStats();
+});
+
+el("btnSound").addEventListener("click", (e) => {
+  soundOn = !soundOn;
+  e.currentTarget.textContent = soundOn ? "Sound" : "Muted";
+  e.currentTarget.setAttribute("aria-pressed", String(soundOn));
+});
+
+el("btnLevels").addEventListener("click", () => showLevels());
+
+/* ---------- overlay ---------- */
+function closeOverlay(){ const o = el("overlay"); if(o) o.remove(); }
+
+function panel(html, wide){
+  closeOverlay();
+  const o = document.createElement("div");
+  o.id = "overlay";
+  o.innerHTML = '<div class="panel' + (wide ? " wide" : "") + '" role="dialog" aria-modal="true">' + html + "</div>";
+  document.body.appendChild(o);
+  return o;
+}
+
+function wireCells(container){
+  container.querySelectorAll(".cell").forEach(b => {
+    if(!b.disabled) b.addEventListener("click", () => startLevel(Number(b.dataset.i)));
+  });
+}
+
+function showLevels(){
+  const nxt = nextLevel();
+  let html = "<h2>Levels</h2><p>" + cleared.size + " of " + PACK.length +
+    " banked. Later levels stack deeper rather than wider \u2014 tiles sitting" +
+    " dead-centre on the one below are invisible until you lift them. A level only" +
+    " banks if you clear it without using undo.</p>" +
+    '<div class="chapters">';
+  for(let c=0;c<CHAPTER_COUNT;c++){
+    const from = c * 10;
+    const intro = PACK[from].introduces;
+    html += '<div class="chap"><h3>' + PACK[from].chapter +
+            (intro ? ' <span class="newsym">+ ' + intro + "</span>" : "") +
+            '</h3><div class="grid">';
+    for(let i=from;i<from+10 && i<PACK.length;i++){
+      const L = PACK[i], ok = unlocked(L.n);
+      const cls = "cell" + (cleared.has(L.n) ? " done" : (ok && L.n === nxt ? " next" : ""));
+      html += '<button class="' + cls + '" data-i="' + i + '"' + (ok ? "" : " disabled") +
+              ' aria-label="Level ' + L.n + '">' + L.n + "</button>";
+    }
+    html += "</div></div>";
+  }
+  html += "</div>";
+  if(!unlockAll) html += '<button class="ctl" id="btnUnlock" style="width:100%">Unlock all for testing</button>';
+  const o = panel(html, true);
+  wireCells(o);
+  const u = o.querySelector("#btnUnlock");
+  if(u) u.addEventListener("click", () => { unlockAll = true; showLevels(); });
+  const mark = o.querySelector(".cell.next") || o.querySelector(".cell.done");
+  if(mark) mark.scrollIntoView({block:"center"});
+}
+
+function showEnd(won){
+  const n = S.level.n;
+  const banked = won && !S.usedUndo;      // an undone run does not unlock
+  if(banked){ cleared.add(n); saveCleared(); }
+  const rows = [];
+  if(banked && n < PACK.length && unlocked(n + 1)){
+    rows.push('<button class="lvl" data-i="' + n +
+      '"><span class="n">\u2192</span><span>Level ' + (n + 1) + "</span><span class=\"meta\">" +
+      PACK[n].chapter + "</span></button>");
+  }
+  rows.push('<button class="lvl" data-i="' + (n - 1) +
+    '"><span class="n">\u21bb</span><span>' + (won ? "Replay level " : "Restart level ") + n +
+    '</span><span class="meta">new symbols</span></button>');
+  let title, body;
+  if(banked){
+    title = "Level " + n + " cleared";
+    body = n < PACK.length ? "Level " + (n + 1) + " is open."
+                           : "That is all 100. Every board you cleared was generated solvable.";
+  } else if(won){
+    title = "Cleared, not banked";
+    body = "You finished the board, but you used an undo \u2014 so level " + n +
+           " stays unbanked and " + (n < PACK.length ? "level " + (n + 1) + " stays locked. " : "") +
+           "Run it start to finish without undoing to bank it.";
+  } else {
+    title = "Tray full";
+    body = "Five tiles and no third match, so the level restarts. Undo works while you are " +
+           "still playing \u2014 not once the tray is full.";
+  }
+  const html =
+    '<h2 class="' + (banked ? "win" : (won ? "" : "lose")) + '">' + title + "</h2>" +
+    "<p>" + body + "</p><div class=\"levels\">" + rows.join("") + "</div>" +
+    '<button class="ctl" id="btnToLevels" style="width:100%">All levels</button>';
+  const o = panel(html);
+  o.querySelectorAll(".lvl").forEach(b => b.addEventListener("click", () => startLevel(Number(b.dataset.i))));
+  o.querySelector("#btnToLevels").addEventListener("click", () => showLevels());
+}
+
+/* ---------- boot ---------- */
+function boot(){
+  startLevel(nextLevel() - 1, null);
+}
+if(window.claude && window.claude.hot && window.claude.hot.ready){
+  window.claude.hot.ready(boot);
+} else {
+  boot();
+}
+})();
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function (e) {
+      console.warn("Service worker registration failed:", e);
+    });
+  });
+}
+</script>
+</body>
+</html>
