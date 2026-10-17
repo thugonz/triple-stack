@@ -13,6 +13,9 @@ install it as a full-screen app that works offline.
 
 ## This repo
 
+Every file sits at the repository root — no subfolders, so the whole thing
+uploads through the GitHub web interface in one go.
+
 This is the **web prototype** — one self-contained HTML file plus a service
 worker, used to settle the game design before the Godot port. The level data and
 the generator here are the real assets and carry over unchanged.
@@ -22,10 +25,10 @@ the generator here are the real assets and carry over unchanged.
 | `index.html` | The whole game. No build step, no dependencies. |
 | `sw.js` | Service worker — offline app shell. |
 | `manifest.webmanifest` | PWA manifest. |
-| `tools/gen_levels.py` | Generates all 100 levels. The difficulty curve lives in `curve()`. |
-| `tools/levels.json` | The generated level pack the game ships with. |
-| `tools/validate_pack.js` | Correctness gate — must stay green. |
-| `tools/difficulty.js` | Simulates a competent player to measure win rates per level. |
+| `gen_levels.py` | Generates all 100 levels. The difficulty curve lives in `curve()`. |
+| `levels.json` | The generated level pack the game ships with. |
+| `validate_pack.js` | Correctness gate — must stay green. |
+| `difficulty.js` | Simulates a competent player to measure win rates per level. |
 
 ## How levels work
 
@@ -59,9 +62,9 @@ slots — so any tray of three or more can clear the board.
 Regenerate and re-check with:
 
 ```bash
-python3 tools/gen_levels.py     # writes levels.json
-node tools/validate_pack.js     # must report PROBLEMS: 0
-node tools/difficulty.js        # win-rate estimates per level
+python3 gen_levels.py     # writes levels.json
+node validate_pack.js     # must report PROBLEMS: 0
+node difficulty.js        # win-rate estimates per level
 ```
 
 `validate_pack.js` checks every level for: tile count divisible by 3, no

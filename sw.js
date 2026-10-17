@@ -1,22 +1,33 @@
 /* Triple Stack — offline shell.
-   Bump CACHE on every deploy so clients actually pick up the new build. */
-const CACHE = "triple-stack-v1";
+   Every file lives at the site root; there are no subfolders.
+   Bump CACHE on each deploy so clients pick up the new build. */
+const CACHE = "triple-stack-v2";
 const SHELL = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./icons/icon-maskable-512.png",
-  "./icons/apple-touch-icon.png"
+  "./icon-192.png",
+  "./icon-512.png",
+  "./icon-maskable-512.png",
+  "./apple-touch-icon.png"
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(
-    caches.open(CACHE)
-      .then((c) => c.addAll(SHELL))
-      .then(() => self.skipWaiting())
-  );
+  e.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    // Cache each file independently. cache.addAll() is all-or-nothing, so a
+    // single missing asset would abort the install and silently kill offline
+    // support for the whole app. Never again.
+    await Promise.allSettled(SHELL.map(async (url) => {
+      try {
+        const res = await fetch(url, { cache: "reload" });
+        if (res && res.ok) await cache.put(url, res);
+      } catch (err) {
+        /* a missing extra is not fatal */
+      }
+    }));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener("activate", (e) => {
@@ -31,7 +42,6 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
 
-  // Navigations: try the network so a new build lands, fall back to the cached page.
   if (req.mode === "navigate") {
     e.respondWith(
       fetch(req)
@@ -45,7 +55,6 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  // Everything else (incl. Google Fonts): serve from cache, refresh in the background.
   e.respondWith(
     caches.match(req).then((hit) => {
       const net = fetch(req)
